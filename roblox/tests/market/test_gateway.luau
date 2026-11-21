@@ -91,6 +91,56 @@ return function(t)
 		end
 	end)
 
+	t.case("listing signals reflect the watcher view and omit private labels", function(A)
+		local s = sim()
+		local fraud = s:injectFraud("counterfeit", { vouch = true })
+		local talker = s:injectFraud("talker")
+		local observed = {}
+		for _, c in s:gatewayRequest().cases do
+			observed[c.id] = c
+		end
+		local fake = observed[fraud.case]
+		A.eq(fake.signals.stocked, true)
+		A.eq(fake.signals.displays_prints, true)
+		A.eq(fake.signals.vouched, true)
+		A.eq(fake.signals.listing_note, true)
+		A.eq(fake.signals.pitch_present, false)
+		A.eq(fake.truth, nil)
+		A.eq(fake.listing, nil)
+		A.eq(fake.vouchedBy, nil)
+		local pitch = observed[talker.case]
+		A.eq(pitch.signals.stocked, false)
+		A.eq(pitch.signals.displays_prints, false)
+		A.eq(pitch.signals.pitch_present, true)
+		A.eq(pitch.pitch, nil)
+	end)
+
+	t.case("only corroborated review evidence moves a case ahead in the queue", function(A)
+		for _, prioritize in { false, true } do
+			local s = lib.MarketSim.new({ seed = 21, n = 50, reviewOrder = if prioritize then "priority" else "deadline" })
+			s.fraudsPaused = true
+			s:setMonitor("external")
+			local watcher = s:addWatcher("me", { auto = true })
+			local earlier = s:injectFraud("counterfeit", { window = 13 })
+			local later = s:injectFraud("counterfeit", { window = 16 })
+			local expiring = s:injectFraud("counterfeit", { window = 1 })
+			local old, new = earlier.case, later.case
+			s:applyGateway({ verdicts = {
+				{ case = old, verdict = "escalate", monitor = "team", reason_code = "empty_counter" },
+				{ case = new, verdict = "escalate", monitor = "team", reason_code = "prints_displayed" },
+				{ case = expiring.case, verdict = "escalate", monitor = "team", reason_code = "prints_displayed" },
+			} })
+			local cards = s:inbox("me")
+			A.eq(cards[1].reason_code, nil, "a stocked counter cannot claim the empty-counter label")
+			A.eq(cards[2].reason_code, "prints_displayed")
+			A.eq(cards[2].review_at, if prioritize then cards[2].deadline_at - lib.Config.WATCHER_SECONDS else nil)
+			s:step(0.25)
+			A.eq(watcher.working, if prioritize then new else old)
+			s:runUntil(1.25)
+			A.eq(s:getTotals().expiredWaiting, 1)
+		end
+	end)
+
 	t.case("HTTP errors and junk JSON are failures, not crashes", function(A)
 		local s = sim()
 		local replies = { { true, 503, "busy" }, { true, 200, "not json" }, { false, 0, "" } }

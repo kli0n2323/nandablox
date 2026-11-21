@@ -383,6 +383,22 @@ def test_malformed_actions_are_dropped_and_named():
         out.close()
 
 
+def test_review_reason_codes_are_only_forwarded_on_escalations():
+    gw, _ = make_gateway()
+    reg = gw.registry.get("monitor", "rules")
+    reply = {"verdicts": [
+        {"case": "a", "verdict": "escalate", "reason_code": "prints_displayed"},
+        {"case": "b", "verdict": "escalate", "reason_code": "arbitrary remote text"},
+        {"case": "c", "verdict": "allow", "reason_code": "empty_counter"},
+    ]}
+    errors = []
+    verdicts = gw._verdicts(reg, reply, {"a", "b", "c"}, errors)
+    assert not errors
+    assert verdicts["a"]["reason_code"] == "prints_displayed"
+    assert "reason_code" not in verdicts["b"]
+    assert "reason_code" not in verdicts["c"]
+
+
 def test_a_malformed_request_is_answered_not_crashed():
     f = GW()
     try:

@@ -32,6 +32,7 @@ from .outbound import OutboundError, check_url, post_json
 
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 VERDICTS = ("allow", "block", "escalate")
+REVIEW_REASONS = ("empty_counter", "prints_displayed", "unusual_listing")
 KINDS = ("monitor", "agent")
 MAX_CASES = 500
 MAX_DECISIONS = 2000
@@ -492,6 +493,9 @@ class Gateway:
             reason = clean_reason(v.get("reason"))
             if reason:
                 item["reason"] = reason
+            code = v.get("reason_code")
+            if item["verdict"] == "escalate" and isinstance(code, str) and code in REVIEW_REASONS:
+                item["reason_code"] = code
             out[cid] = item
         return out
 

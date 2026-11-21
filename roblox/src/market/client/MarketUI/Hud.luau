@@ -5,10 +5,12 @@
 -- the caption.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Theme = require(script.Parent.Theme)
 local GamePanel = require(script.Parent.GamePanel)
+local Review = require(ReplicatedStorage:WaitForChild("Market"):WaitForChild("Review"))
 local new, label, button = Theme.new, Theme.label, Theme.button
 
 local Hud = {}
@@ -174,6 +176,7 @@ local function cardFor(c, now: number)
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		Parent = f,
 	})
+	local evidence = Review.label(c.reason_code)
 	if c.twin then
 		label({
 			Text = "⚠ TWO STALLS, ONE NAME",
@@ -184,12 +187,12 @@ local function cardFor(c, now: number)
 			Position = UDim2.new(0, 12, 0, 72),
 			Parent = f,
 		})
-	elseif c.why then
+	elseif evidence or c.why then
 		label({
-			Text = (c.whyBy and c.whyBy ~= "rules" and (c.whyBy .. ": ") or "monitor: ") .. c.why,
+			Text = if evidence then "Flagged · " .. evidence else (c.whyBy and c.whyBy ~= "rules" and (c.whyBy .. ": ") or "monitor: ") .. c.why,
 			TextSize = 13,
-			Font = Theme.FONT,
-			TextColor3 = muted,
+			Font = evidence and Theme.BOLD or Theme.FONT,
+			TextColor3 = evidence and c.review_at and (mine and Color3.fromRGB(185, 52, 36) or Theme.WARN) or muted,
 			Size = UDim2.new(1, -150, 0, 18),
 			Position = UDim2.new(0, 12, 0, 72),
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -323,7 +326,7 @@ function Hud.clearCases()
 	Hud.layout()
 end
 
--- mine first (oldest deadline first), then others'
+-- My reviews first, ordered by the deadline and any corroborated evidence.
 function Hud.layout()
 	local mine, theirs = {}, {}
 	for _, id in order do
@@ -333,10 +336,10 @@ function Hud.layout()
 		end
 	end
 	table.sort(mine, function(a, b)
-		return a.c.deadline_at < b.c.deadline_at
+		return Review.before(a.c, b.c)
 	end)
 	table.sort(theirs, function(a, b)
-		return a.c.deadline_at < b.c.deadline_at
+		return Review.before(a.c, b.c)
 	end)
 	local shown = 0
 	topCard = mine[1] or theirs[1]

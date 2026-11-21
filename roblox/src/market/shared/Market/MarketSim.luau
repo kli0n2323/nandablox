@@ -35,6 +35,7 @@ local Layout = sibling("Layout")
 local Names = sibling("Names")
 local Loadout = sibling("Loadout")
 local RedBot = sibling("RedBot")
+local Review = sibling("Review")
 
 local MarketSim = {}
 MarketSim.__index = MarketSim
@@ -92,7 +93,7 @@ function MarketSim.sellersFor(n: number, cfg): number
 	return math.max(cfg.MIN_SELLERS, math.floor(n * cfg.SELLER_SHARE + 0.5))
 end
 
--- opts = { seed, n, config, monitor, signatures }
+-- opts = { seed, n, config, monitor, signatures, reviewOrder }
 function MarketSim.new(opts)
 	opts = opts or {}
 	local cfg = opts.config or DefaultConfig
@@ -103,6 +104,7 @@ function MarketSim.new(opts)
 		now = 0,
 		n = 0,
 		monitor = opts.monitor or "off",
+		reviewOrder = opts.reviewOrder or "priority",
 		signatures = if opts.signatures == nil then true else opts.signatures,
 		goods = {},
 		goodList = {},
@@ -144,6 +146,7 @@ function MarketSim.new(opts)
 			redLost = 0, -- deposits forfeited when caught
 			asked = 0,
 			decided = 0,
+			expiredWaiting = 0,
 			honestDeals = 0,
 			honestValue = 0,
 			stolen = 0,
@@ -961,6 +964,8 @@ function MarketSim:publicCase(c)
 		why = c.reason,
 		whyBy = c.monitorName,
 		untrusted = c.untrusted,
+		reason_code = c.reason_code,
+		review_at = c.review_at,
 	}
 end
 
@@ -1048,6 +1053,9 @@ function MarketSim.closeCase(self, c, verdict: string, by: string, who: string?,
 			s.allowedBy = by
 		end
 	elseif verdict == "expired" then
+		if wasInbox then
+			self.totals.expiredWaiting += 1
+		end
 		if s then
 			s.allowedBy = "expired"
 		end
@@ -1217,8 +1225,8 @@ function MarketSim:inbox(watcherId: string?)
 	return out
 end
 
--- the modelled watcher: one call every WATCHER_SECONDS, oldest decidable case
--- first, right with a probability that depends on how the case looks
+-- One call every WATCHER_SECONDS. External monitors normally use the card
+-- order. Arrival order is available to reproduce the original training runs.
 local function autoWatch(self, w)
 	local cfg = self.cfg
 	if w.working then
@@ -1246,13 +1254,21 @@ local function autoWatch(self, w)
 	if not w.auto then
 		return
 	end
+	local nextCase = nil
 	for _, cid in w.queue do
 		local c = self.cases[cid]
 		if c and c.stage == "inbox" and c.deadline_at > self.now + cfg.WATCHER_SECONDS + 0.25 then
-			w.working = cid
-			w.busyUntil = self.now + cfg.WATCHER_SECONDS
-			return
+			if not nextCase or Review.before(c, nextCase) then
+				nextCase = c
+			end
+			if self.monitor ~= "external" or self.reviewOrder == "arrival" then
+				break
+			end
 		end
+	end
+	if nextCase then
+		w.working = nextCase.id
+		w.busyUntil = self.now + cfg.WATCHER_SECONDS
 	end
 end
 
@@ -2286,6 +2302,14 @@ function MarketSim:gatewayRequest(serverId: string?)
 				signature = p.signature,
 				twin = p.twin,
 				deadline_s = p.deadline_s,
+				-- What the watcher can see before deciding, without listing text or seller identities.
+				signals = {
+					stocked = p.hasStock == true,
+					displays_prints = p.display == "prints",
+					vouched = p.vouchedBy ~= nil,
+					listing_note = p.listing ~= nil and p.listing ~= p.good,
+					pitch_present = p.pitch ~= nil,
+				},
 			})
 		end
 	end
@@ -2341,6 +2365,14 @@ function MarketSim:applyGateway(resp)
 					-- untrusted text (gateway decision 7): the server filters it before a player sees it
 					local reason = type(v.reason) == "string" and string.sub(v.reason, 1, 120) or nil
 					local name = type(v.monitor) == "string" and string.sub(v.monitor, 1, 32) or "external"
+					if verdict == "escalate" then
+						local code = Review.evidence(c, v.reason_code)
+						c.reason_code = code
+						if self.reviewOrder == "priority" and (code == "empty_counter" or code == "prints_displayed") then
+							-- Give corroborated evidence a head start of one review slot.
+							c.review_at = c.deadline_at - self.cfg.WATCHER_SECONDS
+						end
+					end
 					self:monitorVerdict(c, verdict, reason, name, name ~= "rules")
 					nv += 1
 				end

@@ -18,6 +18,8 @@ Two examples, one file each, standard library only (Python 3.9+):
 | `monitor.py` | a rule monitor, deliberately *different* from the built-in one: blocks bad signatures, trusts well-rated sellers, draws its lines at 80% and 60% of market | 8801 |
 | `agent.py` | a seller: undercuts when nothing sold, raises when selling out, else drifts to market | 8802 |
 
+The [Supervisor experiment](supervisor/README.md) trains a monitor on honest simulated listings and compares it with the gateway rules and a price-only policy.
+
 ## Five minutes, all on your laptop
 
 From the root of the repo:
@@ -101,12 +103,15 @@ Prices are **integer cents**. A case is
 with `signature` one of `valid`, `invalid`, `unchecked` (signatures off). A
 decision is `{agent, role, good, stock, price, market, sold_last_min}`.
 
+This checkout also sends optional `signals` in each case. They are booleans from the watcher's view: `stocked`, `displays_prints`, `vouched`, `listing_note`, and `pitch_present`. Older games can omit the field, and monitors can ignore it.
+
 The rules the gateway holds you to:
 
 - answer within **800 ms**, at most **64 KiB**, as a JSON object, with HTTP 200;
 - `verdict` is exactly `allow`, `block` or `escalate`, for a `case` id you were sent;
 - `set_price` is a whole number of cents from 1 to 10,000,000, for an `agent` you drive;
 - `reason` is optional, trimmed to one line of 120 characters;
+- an `escalate` verdict can include an optional `reason_code` of `empty_counter`, `prints_displayed`, or `unusual_listing`. The game checks claims about the counter against its own observations before showing them or giving them queue priority;
 - anything else is dropped and named in that tick's `errors` — the rest of
   your answer still counts;
 - at most 60 calls a minute per registration; a call still running when the

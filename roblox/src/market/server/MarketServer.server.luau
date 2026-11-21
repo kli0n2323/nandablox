@@ -901,8 +901,7 @@ end)
 ------------------------------------------------------------------ untrusted text
 
 -- A `reason` written by outside code (an external monitor) is untrusted
--- (gateway decision 7). Players see only the verdict and the monitor's name;
--- the built-in rules' own words are ours and pass.
+-- (gateway decision 7). The inbox renders known evidence codes separately.
 local function sanitize(events)
 	for _, e in events do
 		if e.untrusted then
